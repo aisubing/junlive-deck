@@ -526,13 +526,14 @@ fn setup_linux_media_env() {
 /// 小屏（Steam Deck 1280×800）上按配置的 1360×860 开窗会超出屏幕。
 /// 启动时把主窗口收敛到显示器可用区域，避免右侧/底部被裁掉。
 #[cfg(desktop)]
-fn fit_main_window(app: &tauri::App) {
-    use tauri::Manager;
-
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-    let Some(monitor) = window.current_monitor().ok().flatten() else {
+fn fit_window_to_monitor(window: &tauri::WebviewWindow) {
+    // Wayland 下窗口映射前 current_monitor() 可能拿不到，退回主显示器。
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
         return;
     };
 
@@ -586,7 +587,25 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             #[cfg(desktop)]
-            fit_main_window(app);
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    fit_window_to_monitor(&window);
+                    // 映射完成后（Wayland 下此时才拿得到显示器）再校正一次。
+                    // 只做一次，避免用户手动缩放窗口时被反复拉回。
+                    let window = window.clone();
+                    let armed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+                    window.on_window_event(move |event| {
+                        if !armed.load(std::sync::atomic::Ordering::Relaxed) {
+                            return;
+                        }
+                        if let tauri::WindowEvent::Resized(_) = event {
+                            armed.store(false, std::sync::atomic::Ordering::Relaxed);
+                            fit_window_to_monitor(&window);
+                        }
+                    });
+                }
+            }
 
             // 启动本地流代理
             tauri::async_runtime::spawn(async {

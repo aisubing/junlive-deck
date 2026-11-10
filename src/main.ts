@@ -1,4 +1,5 @@
 import { createApp, watch } from "vue";
+import { currentMonitor, getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import App from "./App.vue";
 import router from "./router";
 import { store, systemPrefersDark } from "./store";
@@ -126,4 +127,37 @@ applyTheme();
 watch(() => store.theme, applyTheme);
 watch(systemPrefersDark, applyTheme);
 
+/**
+ * 小屏（Steam Deck 1280×800）兜底：Rust 侧在 Wayland 窗口映射前可能拿不到
+ * 显示器信息，这里在页面加载后再校正一次窗口尺寸。
+ */
+async function fitWindowToMonitor() {
+  if (navigator.userAgent.includes("Android")) return;
+  try {
+    const win = getCurrentWindow();
+    const monitor = await currentMonitor();
+    if (!monitor) return;
+    const scale = monitor.scaleFactor;
+    const screenW = monitor.size.width / scale;
+    const screenH = monitor.size.height / scale;
+    const work = monitor.workArea.size;
+    // Linux 上 workArea 可能已经是逻辑像素（tauri#14630）
+    const workIsLogical =
+      work.width <= screenW + 1 && work.height <= screenH + 1;
+    const maxW = workIsLogical ? work.width : work.width / scale;
+    const maxH = workIsLogical ? work.height : work.height / scale;
+    const size = await win.outerSize();
+    const curW = size.width / scale;
+    const curH = size.height / scale;
+    if (curW > maxW || curH > maxH) {
+      await win.setSize(
+        new LogicalSize(Math.min(curW, maxW), Math.min(curH, maxH)),
+      );
+    }
+  } catch {
+    // 拿不到显示器信息时保持原样
+  }
+}
+
 createApp(App).use(router).mount("#app");
+fitWindowToMonitor();

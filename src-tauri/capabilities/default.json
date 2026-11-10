@@ -16,6 +16,10 @@
     "core:window:allow-is-fullscreen",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
+    "core:window:allow-set-size",
+    "core:window:allow-outer-size",
+    "core:window:allow-scale-factor",
+    "core:window:allow-current-monitor",
 
     "updater:default",
     "updater:allow-check",
