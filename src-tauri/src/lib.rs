@@ -503,8 +503,31 @@ pub mod routing {
 /// 保留 `OVERSEAS_PLATFORMS` / `needs_proxy` 作为**唯一的分流真相源**，
 /// 给前端判断当前平台是否海外用（与 embed.ts 里的同名常量必须一致）。
 
+/// SteamOS 等 Arch 系发行版把 VA-API 驱动放在 `/usr/lib/dri`，
+/// 而 AppImage 内置的 libva（Debian 构建）默认只搜 Debian 的多架构路径。
+/// 不补这个路径时 VA-API 初始化失败，WebKit 退回 `avdec_h264` 软解，
+/// 1080p 高码率解码跟不上，画面会周期性丢帧/闪烁。
+#[cfg(target_os = "linux")]
+fn setup_linux_media_env() {
+    if std::env::var_os("LIBVA_DRIVERS_PATH").is_some() {
+        return;
+    }
+    let candidates = ["/usr/lib/dri", "/usr/lib/x86_64-linux-gnu/dri"];
+    let dirs: Vec<&str> = candidates
+        .iter()
+        .copied()
+        .filter(|path| std::path::Path::new(path).is_dir())
+        .collect();
+    if !dirs.is_empty() {
+        std::env::set_var("LIBVA_DRIVERS_PATH", dirs.join(":"));
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    setup_linux_media_env();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_immersive::init())

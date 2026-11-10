@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Hls from "hls.js";
 import mpegts from "mpegts.js";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { DanmakuMsg, PlayUrl } from "../api";
 import {
@@ -374,6 +375,9 @@ const cssFull = ref(false);
 function toggleCssFull() {
   cssFull.value = !cssFull.value;
 }
+/** Linux 下走 Tauri 原生窗口全屏，记录状态供 Esc 退出使用。 */
+const sysFull = ref(false);
+const isLinux = navigator.userAgent.includes("Linux");
 
 /**
  * 浏览器全屏（系统级，走 Fullscreen API）。
@@ -385,6 +389,24 @@ function toggleCssFull() {
  * 所以去掉 allowfullscreen，全屏统一走我们自己的按钮。
  */
 function fullscreen() {
+  // WebKitGTK 的 HTML Fullscreen API（requestFullscreen）在 Steam Deck 上
+  // 会让 WebKit UI 进程 abort（libwebkit2gtk 里 CRASH()），这里改成
+  // Tauri 原生窗口全屏，绕开 WebKit 的 FullscreenManager；
+  // 其他平台保持系统 Fullscreen API。
+  if (isLinux) {
+    const win = getCurrentWindow();
+    win
+      .isFullscreen()
+      .then(async (full) => {
+        await win.setFullscreen(!full);
+        sysFull.value = !full;
+      })
+      .catch(() => {
+        // 原生全屏失败时退回 CSS 全屏，至少不影响观看
+        toggleCssFull();
+      });
+    return;
+  }
   const el = wrapRef.value;
   if (!el) return;
   if (document.fullscreenElement) document.exitFullscreen();
@@ -402,6 +424,12 @@ function poke() {
 function onKey(e: KeyboardEvent) {
   const tag = (e.target as HTMLElement)?.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA") return;
+  // Esc 退出系统全屏（Linux 下走 Tauri 原生全屏，不会触发 fullscreenchange）。
+  if (e.key === "Escape" && sysFull.value) {
+    sysFull.value = false;
+    getCurrentWindow().setFullscreen(false).catch(() => {});
+    return;
+  }
   // Esc 退出窗口全屏。这条必须放在 video 检查之前 ——
   // embed 平台（YouTube/Twitch/SOOP）没有 <video>，否则按 Esc 没反应。
   if (e.key === "Escape" && cssFull.value) {
