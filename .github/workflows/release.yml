@@ -1,10 +1,7 @@
 name: Release
 
-# 打 tag（v1.2.3）就自动出三平台安装包；也可以在 Actions 页面手动触发
+# 只允许手动触发：创建 Release / 打 tag 不再自动出三平台安装包
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 concurrency:

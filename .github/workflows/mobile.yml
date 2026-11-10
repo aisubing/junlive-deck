@@ -5,10 +5,8 @@ name: Mobile
 #   - iOS 用 macOS runner（预装 Xcode）
 # 本地不需要装 SDK / NDK / Xcode。
 on:
+  # 只允许手动触发：创建 Release / 打 tag 不再自动出包
   workflow_dispatch:
-  push:
-    tags:
-      - "v*"
 
 concurrency:
   group: mobile-${{ github.ref }}
