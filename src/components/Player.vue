@@ -712,6 +712,27 @@ function onPause() {
 }
 
 /**
+ * MSE 在分片边界会短暂触发 waiting。之前直接把它显示成整屏半透明黑罩 +
+ * 转圈，表现就是「每隔几秒画面闪一下」。这里延迟 1.2 秒再提示，
+ * 期间只要恢复 playing 就不显示；真正卡住时才出现缓冲提示。
+ */
+let bufferingTimer: number | undefined;
+function onWaiting() {
+  if (status.value || bufferingTimer) return;
+  bufferingTimer = window.setTimeout(() => {
+    bufferingTimer = undefined;
+    if (!status.value) status.value = "缓冲中…";
+  }, 1200);
+}
+function onPlaying() {
+  if (bufferingTimer) {
+    window.clearTimeout(bufferingTimer);
+    bufferingTimer = undefined;
+  }
+  status.value = "";
+}
+
+/**
  * SOOP 官方播放器自带全屏按钮（我们在它的 iframe 上开了 allowfullscreen）。
  * 用户在 iframe 里按全屏时，父页的 `document.fullscreenElement` 会变成那个 iframe，
  * 而它内部的按键（含 ESC）由**浏览器**处理、不会冒泡到我们这边 ——
@@ -743,6 +764,7 @@ onBeforeUnmount(() => {
   if (dmRaf) cancelAnimationFrame(dmRaf);
   if (tick) window.clearInterval(tick);
   if (hideTimer) window.clearTimeout(hideTimer);
+  if (bufferingTimer) window.clearTimeout(bufferingTimer);
   window.removeEventListener("keydown", onKey);
   document.removeEventListener("fullscreenchange", onFsChange);
 });
@@ -925,11 +947,11 @@ defineExpose({ reload, seek });
       @pause="onPause"
       @timeupdate="pumpTimedDm"
       @ended="emit('ended')"
-      @waiting="status = status || '缓冲中…'"
-      @playing="status = ''"
+      @waiting="onWaiting"
+      @playing="onPlaying"
     ></video>
 
-    <div v-if="status && !isEmbed" class="veil">
+    <div v-if="status && !isEmbed" class="veil" :class="{ buffering: status === '缓冲中…' }">
       <div class="spinner"></div>
       <div class="veil-text">{{ status }}</div>
     </div>
@@ -1215,6 +1237,10 @@ video {
 .veil.error {
   color: #ffb3b3;
   pointer-events: auto;
+}
+/* 缓冲提示只是短暂卡顿：不要整屏压黑，避免看起来像画面在闪 */
+.veil.buffering {
+  background: rgba(0, 0, 0, 0.12);
 }
 .veil-text {
   max-width: 70%;
