@@ -593,7 +593,7 @@ pub fn run() {
                     fit_window_to_monitor(&window);
                     // 映射完成后（Wayland 下此时才拿得到显示器）再校正一次。
                     // 只做一次，避免用户手动缩放窗口时被反复拉回。
-                    let window = window.clone();
+                    let event_window = window.clone();
                     let armed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
                     window.on_window_event(move |event| {
                         if !armed.load(std::sync::atomic::Ordering::Relaxed) {
@@ -601,7 +601,7 @@ pub fn run() {
                         }
                         if let tauri::WindowEvent::Resized(_) = event {
                             armed.store(false, std::sync::atomic::Ordering::Relaxed);
-                            fit_window_to_monitor(&window);
+                            fit_window_to_monitor(&event_window);
                         }
                     });
                 }
