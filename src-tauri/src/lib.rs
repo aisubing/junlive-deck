@@ -546,7 +546,7 @@ fn fit_window_to_monitor(window: &tauri::WebviewWindow) {
 
     // Linux 上 work_area 在非 1.0 缩放下可能返回逻辑像素（tauri#14630），
     // 此时退回整屏留 8% 边距。
-    let (max_width, max_height, origin) = if (scale - 1.0).abs() < 1e-6 {
+    let (max_width, mut max_height, origin) = if (scale - 1.0).abs() < 1e-6 {
         let work = monitor.work_area();
         (
             work.size.width as f64,
@@ -556,6 +556,12 @@ fn fit_window_to_monitor(window: &tauri::WebviewWindow) {
     } else {
         (screen.width * 0.92, screen.height * 0.92, None)
     };
+
+    // Linux 桌面面板可能以「覆盖窗口」的方式存在（work_area 等于整屏），
+    // 预留 56px 底边，避免底部内容被面板挡住。
+    if cfg!(target_os = "linux") && max_height >= screen.height - 1.0 {
+        max_height = (max_height - 56.0).max(480.0);
+    }
 
     if current.width > max_width || current.height > max_height {
         let _ = window.set_size(tauri::LogicalSize::new(

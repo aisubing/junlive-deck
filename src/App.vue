@@ -251,7 +251,7 @@ function switchPlatform(id: string) {
 .topbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   height: 56px;
   /* 右侧留窄一点，让窗口按钮贴住窗口边缘 */
   padding: 0 8px 0 20px;
@@ -322,7 +322,7 @@ function switchPlatform(id: string) {
 
 .platforms {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   overflow-x: auto;
   scrollbar-width: none;
   /* 顶栏总宽有限（Steam Deck 1280）：平台标签占用剩余空间并在内部横滚，
@@ -340,7 +340,7 @@ function switchPlatform(id: string) {
   gap: 6px;
   flex: none;
   height: 30px;
-  padding: 0 12px;
+  padding: 0 10px;
   font-size: 13px;
   border-radius: 999px;
   background: var(--chip);
@@ -369,9 +369,9 @@ function switchPlatform(id: string) {
 
 .searchbox {
   position: relative;
-  /* 窄屏时允许搜索框收缩，保证右侧窗口按钮始终可见 */
-  flex: 0 1 300px;
-  min-width: 200px;
+  /* 窄屏时允许搜索框收缩，给平台标签让出位置 */
+  flex: 0 1 220px;
+  min-width: 160px;
 }
 .searchbox input {
   width: 100%;

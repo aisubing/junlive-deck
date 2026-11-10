@@ -145,7 +145,14 @@ async function fitWindowToMonitor() {
     const workIsLogical =
       work.width <= screenW + 1 && work.height <= screenH + 1;
     const maxW = workIsLogical ? work.width : work.width / scale;
-    const maxH = workIsLogical ? work.height : work.height / scale;
+    let maxH = workIsLogical ? work.height : work.height / scale;
+    // Linux 桌面面板可能覆盖窗口（workArea 等于整屏），留 56px 底边
+    const isLinuxDesktop =
+      navigator.userAgent.includes("Linux") &&
+      !navigator.userAgent.includes("Android");
+    if (isLinuxDesktop && maxH >= screenH - 1) {
+      maxH = Math.max(480, maxH - 56);
+    }
     const size = await win.outerSize();
     const curW = size.width / scale;
     const curH = size.height / scale;
