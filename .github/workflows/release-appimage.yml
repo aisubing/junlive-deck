@@ -1,0 +1,132 @@
+name: Release AppImage
+
+# 只构建 Linux AppImage，便于在 Steam Deck / SteamOS 上验证媒体播放。
+# 与 release.yml 互不影响。
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build (branch, tag or commit)"
+        required: false
+        default: "master"
+      upload_release:
+        description: "Attach the AppImage to the GitHub Release for a tag ref"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-appimage:
+    runs-on: ubuntu-22.04
+    env:
+      # 仓库里 rust-toolchain.toml 固定了 Windows 工具链，CI 用各平台默认工具链
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Rust 编译产物
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: 安装 Linux 系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-gl \
+            gstreamer1.0-libav
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 构建 AppImage
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          args=(--bundles appimage)
+          # fork 上通常没有更新签名私钥；没有就关闭更新包生成，避免构建失败
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            args+=(--config '{"bundle":{"createUpdaterArtifacts":false}}')
+          fi
+          npm run tauri -- build "${args[@]}"
+
+      # WebKitGTK 的 MSE（hls.js / mpegts.js 依赖）通过 GStreamer 解码，
+      # AppImage 必须自带插件，否则在缺少 GStreamer 插件（如 SteamOS）的系统上
+      # 会报「当前环境不支持 HLS / FLV 播放」。
+      - name: 校验 AppImage 内置 GStreamer 媒体组件
+        run: |
+          set -e
+          appimage=$(ls src-tauri/target/release/bundle/appimage/*.AppImage | head -n 1)
+          if [ -z "$appimage" ]; then
+            echo "没有找到 AppImage 产物" >&2
+            exit 1
+          fi
+          rm -rf squashfs-root
+          "$appimage" --appimage-extract >/dev/null
+          missing=0
+          for plugin in libgstisomp4.so libgstlibav.so libgstvideoparsersbad.so libgstaudioparsers.so; do
+            if find squashfs-root -name "$plugin" | grep -q .; then
+              echo "OK  $plugin"
+            else
+              echo "缺少 GStreamer 插件：$plugin" >&2
+              missing=1
+            fi
+          done
+          if [ ! -f squashfs-root/apprun-hooks/linuxdeploy-plugin-gstreamer.sh ]; then
+            echo "缺少 GStreamer 环境钩子" >&2
+            missing=1
+          fi
+          exit "$missing"
+
+      - name: 上传 AppImage 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+      - name: Resolve ref info
+        id: ref_info
+        shell: bash
+        run: |
+          ref_name="${{ inputs.ref }}"
+          if [[ "$ref_name" == refs/tags/* ]]; then
+            ref_name="${ref_name#refs/tags/}"
+          fi
+          is_tag="false"
+          if [[ "$ref_name" == v* ]]; then
+            is_tag="true"
+          fi
+          echo "ref_name=$ref_name" >> "$GITHUB_OUTPUT"
+          echo "is_tag=$is_tag" >> "$GITHUB_OUTPUT"
+
+      - name: 上传到 GitHub Release
+        if: ${{ inputs.upload_release && steps.ref_info.outputs.is_tag == 'true' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.ref_info.outputs.ref_name }}
+          name: ${{ steps.ref_info.outputs.ref_name }}
+          generate_release_notes: true
+          token: ${{ github.token }}
+          files: src-tauri/target/release/bundle/appimage/*.AppImage
