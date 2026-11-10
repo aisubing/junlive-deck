@@ -523,6 +523,55 @@ fn setup_linux_media_env() {
     }
 }
 
+/// 小屏（Steam Deck 1280×800）上按配置的 1360×860 开窗会超出屏幕。
+/// 启动时把主窗口收敛到显示器可用区域，避免右侧/底部被裁掉。
+#[cfg(desktop)]
+fn fit_main_window(app: &tauri::App) {
+    use tauri::Manager;
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Some(monitor) = window.current_monitor().ok().flatten() else {
+        return;
+    };
+
+    let scale = monitor.scale_factor();
+    let screen = monitor.size().to_logical::<f64>(scale);
+    let current = window
+        .outer_size()
+        .map(|size| size.to_logical::<f64>(scale))
+        .unwrap_or(tauri::LogicalSize::new(1360.0, 860.0));
+
+    // Linux 上 work_area 在非 1.0 缩放下可能返回逻辑像素（tauri#14630），
+    // 此时退回整屏留 8% 边距。
+    let (max_width, max_height, origin) = if (scale - 1.0).abs() < 1e-6 {
+        let work = monitor.work_area();
+        (
+            work.size.width as f64,
+            work.size.height as f64,
+            Some((work.position.x, work.position.y)),
+        )
+    } else {
+        (screen.width * 0.92, screen.height * 0.92, None)
+    };
+
+    if current.width > max_width || current.height > max_height {
+        let _ = window.set_size(tauri::LogicalSize::new(
+            current.width.min(max_width),
+            current.height.min(max_height),
+        ));
+        match origin {
+            Some((x, y)) => {
+                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+            }
+            None => {
+                let _ = window.center();
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "linux")]
@@ -535,7 +584,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         // 更新装完要重启进程才生效
         .plugin(tauri_plugin_process::init())
-        .setup(|_app| {
+        .setup(|app| {
+            #[cfg(desktop)]
+            fit_main_window(app);
+
             // 启动本地流代理
             tauri::async_runtime::spawn(async {
                 proxy::start().await;
