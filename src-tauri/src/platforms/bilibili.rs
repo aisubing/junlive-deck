@@ -303,7 +303,11 @@ pub async fn play_urls(rid: i64) -> Result<Vec<PlayUrl>, String> {
         }
     }
 
-    raw.sort_by_key(|(h, c, _)| (*h, *c));
+    // Linux 的 WebKitGTK 里，mpegts.js 把 FLV 重封装成 fMP4 后 WebKit 会解出
+    // 坏帧（参考帧缺失、灰块），HLS 则正常。所以 Linux 优先 HLS，其他平台
+    // 维持原来的 FLV 优先。
+    let hls_first = cfg!(target_os = "linux");
+    raw.sort_by_key(|(h, c, _)| (if hls_first { 1 - *h } else { *h }, *c));
     let out: Vec<PlayUrl> = raw.into_iter().map(|(_, _, p)| p).collect();
     if out.is_empty() {
         return Err("没有可用的播放地址".into());

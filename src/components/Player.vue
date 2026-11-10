@@ -377,7 +377,13 @@ function toggleCssFull() {
 }
 /** Linux 下走 Tauri 原生窗口全屏，记录状态供 Esc 退出使用。 */
 const sysFull = ref(false);
-const isLinux = navigator.userAgent.includes("Linux");
+/** Linux 桌面（WebKitGTK，排除 Android）走 Tauri 原生窗口全屏 / 原生 FLV。 */
+const isLinuxDesktop =
+  navigator.userAgent.includes("Linux") &&
+  !navigator.userAgent.includes("Android");
+/** Linux 下 FLV 直接交给 <video>（GStreamer 原生解 FLV），失败再退回 mpegts.js。 */
+let nativeFlv = false;
+let forceFlvMse = false;
 
 /**
  * 浏览器全屏（系统级，走 Fullscreen API）。
@@ -393,7 +399,7 @@ function fullscreen() {
   // 会让 WebKit UI 进程 abort（libwebkit2gtk 里 CRASH()），这里改成
   // Tauri 原生窗口全屏，绕开 WebKit 的 FullscreenManager；
   // 其他平台保持系统 Fullscreen API。
-  if (isLinux) {
+  if (isLinuxDesktop) {
     const win = getCurrentWindow();
     win
       .isFullscreen()
@@ -473,6 +479,7 @@ function onKey(e: KeyboardEvent) {
 
 function destroy() {
   lockedLevel = -1;
+  nativeFlv = false;
   if (hls) {
     try {
       hls.destroy();
@@ -534,6 +541,17 @@ function attach(p: PlayUrl | null) {
   };
 
   if (p.format === "flv") {
+    // WebKitGTK 底层是 GStreamer，可以直接解 HTTP-FLV；而 mpegts.js 把
+    // FLV 重封装成 fMP4 后，WebKit 会丢参考帧（画面灰块/花屏）。所以
+    // Linux 优先用 <video> 原生播放，失败再由 onVideoError 退回 mpegts.js。
+    if (isLinuxDesktop && !forceFlvMse) {
+      nativeFlv = true;
+      v.src = p.proxy;
+      status.value = "";
+      autoplay();
+      return;
+    }
+    nativeFlv = false;
     if (!mpegts.isSupported()) {
       err.value = "当前环境不支持 FLV 播放";
       return;
@@ -700,6 +718,15 @@ function askRefresh(why: string) {
 function reload() {
   retried = 0;
   attach(props.play);
+}
+
+/** Linux 下原生 FLV 播放失败时，退回 mpegts.js（画面可能仍有问题，但能播）。 */
+function onVideoError() {
+  if (!nativeFlv) return;
+  nativeFlv = false;
+  forceFlvMse = true;
+  attach(props.play);
+  forceFlvMse = false;
 }
 
 function onPlay() {
@@ -949,6 +976,7 @@ defineExpose({ reload, seek });
       @ended="emit('ended')"
       @waiting="onWaiting"
       @playing="onPlaying"
+      @error="onVideoError"
     ></video>
 
     <div v-if="status && !isEmbed" class="veil" :class="{ buffering: status === '缓冲中…' }">

@@ -406,16 +406,25 @@ pub async fn room_detail(room_id: &str) -> Result<RoomDetail, String> {
             candidates.push(("HLS", u.to_string()));
         }
 
-        // 原画优先
-        candidates.sort_by_key(|(k, _)| {
+        // 原画优先；Linux 下 HLS 优先（WebKitGTK 对 mpegts.js 的 FLV 重封装
+        // 会解出参考帧缺失的坏画面），其他平台维持 FLV 优先。
+        let hls_first = cfg!(target_os = "linux");
+        candidates.sort_by_key(|(k, u)| {
             let k = k.to_uppercase();
-            if k.contains("FULL_HD") || k.contains("ORIGIN") {
+            let quality = if k.contains("FULL_HD") || k.contains("ORIGIN") {
                 0
             } else if k.contains("HD") {
                 1
             } else {
                 2
-            }
+            };
+            let is_flv = u.contains(".flv");
+            let format_rank = if hls_first {
+                if is_flv { 1 } else { 0 }
+            } else {
+                if is_flv { 0 } else { 1 }
+            };
+            (quality, format_rank)
         });
 
         for (k, u) in candidates {
