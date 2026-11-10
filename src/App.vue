@@ -325,8 +325,10 @@ function switchPlatform(id: string) {
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
-  flex: none;
-  max-width: 48%;
+  /* 顶栏总宽有限（Steam Deck 1280）：平台标签占用剩余空间并在内部横滚，
+     不再用固定 max-width 把右侧窗口按钮挤出屏幕。 */
+  flex: 1 1 auto;
+  min-width: 0;
   margin-left: 6px;
 }
 .platforms::-webkit-scrollbar {
@@ -361,14 +363,15 @@ function switchPlatform(id: string) {
 }
 
 .spacer {
-  flex: 1;
+  flex: 0 0 0;
   min-width: 10px;
 }
 
 .searchbox {
   position: relative;
-  flex: none;
-  width: 300px;
+  /* 窄屏时允许搜索框收缩，保证右侧窗口按钮始终可见 */
+  flex: 0 1 300px;
+  min-width: 200px;
 }
 .searchbox input {
   width: 100%;
